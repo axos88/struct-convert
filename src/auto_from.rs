@@ -1,4 +1,5 @@
 use darling::{FromAttributes, FromDeriveInput, ToTokens};
+use itertools::Itertools;
 use proc_macro2::{Ident, TokenStream};
 use quote::quote;
 
@@ -169,6 +170,7 @@ impl DeriveIntoContext {
         self.fields
             .clone()
             .into_iter()
+            .sorted_by_key(|fd| fd.get_by_name(FieldClass::From(struct_name.clone())).unwrap_or(fd.default_opts.clone()).custom_fn.is_empty())
             .map(|fd| {
                 let Fd {
                     name,
