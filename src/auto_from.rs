@@ -1,4 +1,4 @@
-use darling::{FromAttributes, FromDeriveInput, FromField, ToTokens};
+use darling::{FromAttributes, FromDeriveInput, ToTokens};
 use proc_macro2::{Ident, TokenStream};
 use quote::quote;
 
@@ -17,7 +17,7 @@ struct MetaOpts {
     from: Vec<Path>,
 }
 
-#[derive(Debug, Default, Clone, FromField, FromAttributes)]
+#[derive(Debug, Default, Clone, FromAttributes)]
 #[darling(default, attributes(convert_field))]
 struct FiledOpts {
     rename: String,
@@ -34,9 +34,8 @@ struct FiledOpts {
 #[derive(Clone, Debug)]
 struct Fd {
     name: Ident,
-    opts: FiledOpts,
-    multi_opts: Vec<FiledOpts>,
-    multiple: bool,
+    default_opts: FiledOpts,
+    custom_opts: Vec<FiledOpts>,
     optional: bool,
     is_vec: bool,
 }
@@ -44,16 +43,15 @@ struct Fd {
 impl From<Field> for Fd {
     fn from(f: Field) -> Self {
         let (optional, is_vec, _) = get_option_inner(&f.ty);
-        let opts = FiledOpts::from_field(&f).unwrap_or_default();
         let multi_opts = parse_attrs(&f.attrs);
+        let opts = multi_opts.iter().find(|f| f.from.is_empty() && f.into.is_empty()).map(Clone::clone).unwrap_or_default();
         Self {
             // 此时，我们拿到的是 NamedFields，所以 ident 必然存在
             name: f.ident.unwrap(),
             optional,
             is_vec,
-            opts,
-            multi_opts,
-            multiple: f.attrs.len() > 1,
+            default_opts: opts,
+            custom_opts: multi_opts,
         }
     }
 }
@@ -65,20 +63,15 @@ enum FieldClass {
 }
 
 impl Fd {
-    fn get_by_name(&self, field_class: FieldClass) -> FiledOpts {
+    fn get_by_name(&self, field_class: FieldClass) -> Option<FiledOpts> {
         match field_class.clone() {
             FieldClass::From(name) => {
-                if let Some(opt) = self.multi_opts.iter().find(|o| o.from.split_whitespace().collect::<String>().eq(&name.split_whitespace().collect::<String>())) {
-                    return opt.clone();
-                }
+                self.custom_opts.iter().find(|o| o.from.split_whitespace().collect::<String>().eq(&name.split_whitespace().collect::<String>())).map(Clone::clone)
             }
             FieldClass::Into(name) => {
-                if let Some(opt) = self.multi_opts.iter().find(|o| o.into.split_whitespace().collect::<String>().eq(&name.split_whitespace().collect::<String>())) {
-                    return opt.clone();
-                }
+                self.custom_opts.iter().find(|o| o.into.split_whitespace().collect::<String>().eq(&name.split_whitespace().collect::<String>())).map(Clone::clone)
             }
-        };
-        panic!("not found class '{:?}' convert_field", field_class)
+        }
     }
 }
 
@@ -172,7 +165,7 @@ impl DeriveIntoContext {
         )
     }
 
-    fn gen_from_assigns(&self, sturct_name: String) -> Vec<TokenStream> {
+    fn gen_from_assigns(&self, struct_name: String) -> Vec<TokenStream> {
         self.fields
             .clone()
             .into_iter()
@@ -181,13 +174,11 @@ impl DeriveIntoContext {
                     name,
                     optional,
                     is_vec,
-                    mut opts,
-                    multiple,
                     ..
                 } = fd.clone();
-                if multiple {
-                    opts = fd.get_by_name(FieldClass::From(sturct_name.clone()));
-                }
+
+                let opts = fd.get_by_name(FieldClass::From(struct_name.clone())).unwrap_or(fd.default_opts);
+
                 let source_name: Ident = if opts.rename.is_empty() {
                     name.clone()
                 } else {
@@ -258,14 +249,12 @@ impl DeriveIntoContext {
                     name,
                     optional,
                     is_vec,
-                    mut opts,
-                    multiple,
+                    default_opts,
                     ..
                 } = fd.clone();
 
-                if multiple {
-                    opts = fd.get_by_name(FieldClass::Into(struct_name.clone()));
-                }
+                let opts = fd.get_by_name(FieldClass::Into(struct_name.clone())).unwrap_or(default_opts);
+
                 let target_name: Ident = if opts.rename.is_empty() {
                     name.clone()
                 } else {
