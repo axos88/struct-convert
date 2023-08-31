@@ -26,9 +26,11 @@ struct D {
 
 #[derive(Debug, Convert, PartialEq)]
 #[convert(from = "D")]
+#[convert(into = "D")]
 struct E {
     str: String,
-    #[convert_field(rename = "bid", custom_fn = "to_point_from_d")]
+    #[convert_field(from = "D", rename = "bid", custom_fn = "to_point_from_d")]
+    #[convert_field(into = "D", rename = "bid", custom_fn = "from_point_to_d")]
     point: Point
 
 }
@@ -48,6 +50,7 @@ fn to_point_from_d(d: &D) -> Point {
     Point(d.bid, d.bid)
 }
 
+fn from_point_to_d(e: &E) -> i64 { e.point.0 }
 
 fn main() {
 
@@ -63,5 +66,7 @@ fn test_custom() {
 
     let d = D { str: "str".into(), bid: 42 };
     let e: E = d.into();
+    let d2: D = e.into();
     debug_assert_eq!(E { str: "str".into(), point: Point(42, 42) }, e);
+    debug_assert_eq!(D { str: "str".into(), bid: 42 }, d2);
 }
